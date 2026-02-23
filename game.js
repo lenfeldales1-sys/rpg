@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 
 // --- KONFIGURACE A KONSTANTY ---
 
@@ -6,10 +7,10 @@ import * as THREE from 'three';
 const RYCHLOST_HRACE = 15.0;
 // Rychlost střely
 const RYCHLOST_STRELY = 50.0;
-// Rychlost nepřátel (glitchů)
+// Rychlost nepřátel (robotů)
 const RYCHLOST_NEPRITELE = 6.0;
 // Poloměr pro kolize (hráč, střela, nepřítel)
-const POLOMER_KOLIZE = 0.5;
+const POLOMER_KOLIZE = 0.8; // Zvětšeno kvůli větším robotům
 // Maximální zdraví hráče
 const MAX_ZDRAVI = 100;
 // Jak často se spawnují nepřátelé (v milisekundách)
@@ -21,10 +22,9 @@ const VELIKOST_ARENY = 50;
 
 // --- GLOBÁLNÍ PROMĚNNÉ ---
 
-let scena, kamera, renderer;
+let scena, kamera, renderer, controls;
 let clock; // Pro měření času mezi snímky (delta time)
 let playerVelocity = new THREE.Vector3();
-let playerDirection = new THREE.Vector3();
 let moveForward = false;
 let moveBackward = false;
 let moveLeft = false;
@@ -85,55 +85,101 @@ class Strela {
 }
 
 /**
- * Třída reprezentující nepřítele (Glitch).
+ * Třída reprezentující nepřítele - Robota.
+ * Skládá se z několika částí (Group).
  */
 class Nepritel {
     constructor() {
-        // Náhodný tvar: Jehlan (Cone) nebo Kostka (Box)
-        const isCube = Math.random() > 0.5;
-        const geometry = isCube
-            ? new THREE.BoxGeometry(1, 1, 1)
-            : new THREE.ConeGeometry(0.5, 1, 4);
+        this.group = new THREE.Group();
 
-        const material = new THREE.MeshStandardMaterial({
-            color: 0xff0000, // Červená
-            emissive: 0x550000,
-            roughness: 0.1,
+        // Materiály
+        const armorMat = new THREE.MeshStandardMaterial({
+            color: 0xaa0000,
+            roughness: 0.3,
             metalness: 0.8
         });
+        const glowMat = new THREE.MeshBasicMaterial({ color: 0xff0000 }); // Svítící červená
+        const darkMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
 
-        this.mesh = new THREE.Mesh(geometry, material);
+        // 1. Tělo (Torzo)
+        const torsoGeo = new THREE.CylinderGeometry(0.4, 0.3, 1.0, 8);
+        const torso = new THREE.Mesh(torsoGeo, armorMat);
+        torso.position.y = 0.5; // Zvedneme nad zem
+        this.group.add(torso);
+
+        // 2. Hlava
+        const headGeo = new THREE.BoxGeometry(0.5, 0.4, 0.5);
+        const head = new THREE.Mesh(headGeo, darkMat);
+        head.position.y = 1.1; // Na krku
+        this.group.add(head);
+
+        // 3. Oči (Svítící pruh)
+        const eyeGeo = new THREE.BoxGeometry(0.4, 0.1, 0.1);
+        const eye = new THREE.Mesh(eyeGeo, glowMat);
+        eye.position.set(0, 1.15, 0.26); // Na obličeji
+        this.group.add(eye);
+
+        // 4. Paže (Levitující koule vedle těla)
+        const armGeo = new THREE.SphereGeometry(0.2, 8, 8);
+        this.leftArm = new THREE.Mesh(armGeo, armorMat);
+        this.leftArm.position.set(-0.6, 0.8, 0);
+        this.group.add(this.leftArm);
+
+        this.rightArm = new THREE.Mesh(armGeo, armorMat);
+        this.rightArm.position.set(0.6, 0.8, 0);
+        this.group.add(this.rightArm);
+
 
         // Spawn na okraji arény (náhodný úhel)
         const uhel = Math.random() * Math.PI * 2;
         const vzdalenost = VELIKOST_ARENY - 2; // Trochu uvnitř zdí
-        this.mesh.position.set(
+        this.group.position.set(
             Math.cos(uhel) * vzdalenost,
-            1, // Výška nad zemí
+            0.5, // Výška nad zemí (vznáší se)
             Math.sin(uhel) * vzdalenost
         );
 
-        scena.add(this.mesh);
+        // Otočit čelem ke středu arény (přibližně)
+        this.group.lookAt(0, 0.5, 0);
+
+        scena.add(this.group);
+
+        // Pro animaci
+        this.timeOffset = Math.random() * 100;
     }
 
     update(delta, poziceHrace) {
         // Vektor směrem k hráči
-        const smer = new THREE.Vector3().subVectors(poziceHrace, this.mesh.position);
-        smer.y = 0; // Nepřátelé se hýbou jen po zemi, nelétají
+        const smer = new THREE.Vector3().subVectors(poziceHrace, this.group.position);
+        smer.y = 0; // Nepřátelé se hýbou jen po zemi (levitují ve stálé výšce)
         smer.normalize();
 
         // Posun
-        this.mesh.position.addScaledVector(smer, RYCHLOST_NEPRITELE * delta);
+        this.group.position.addScaledVector(smer, RYCHLOST_NEPRITELE * delta);
 
-        // Rotace pro efekt ("glitchy" pohyb)
-        this.mesh.rotation.x += delta * 2;
-        this.mesh.rotation.y += delta * 3;
+        // Otočení čelem k hráči
+        this.group.lookAt(poziceHrace.x, this.group.position.y, poziceHrace.z);
+
+        // Animace (Levitace + pohyb rukou)
+        const time = clock.getElapsedTime() + this.timeOffset;
+
+        // Levitace celého těla nahoru/dolů
+        this.group.position.y = 0.5 + Math.sin(time * 2) * 0.1;
+
+        // Pohyb paží (dopředu/dozadu jako při běhu)
+        this.leftArm.position.z = Math.sin(time * 10) * 0.2;
+        this.rightArm.position.z = Math.sin(time * 10 + Math.PI) * 0.2; // Opačná fáze
     }
 
     odstran() {
-        scena.remove(this.mesh);
-        this.mesh.geometry.dispose();
-        this.mesh.material.dispose();
+        scena.remove(this.group);
+        // Rekurzivně uvolnit paměť pro všechny potomky v grupě
+        this.group.traverse((child) => {
+            if (child.isMesh) {
+                child.geometry.dispose();
+                child.material.dispose();
+            }
+        });
     }
 }
 
@@ -143,7 +189,7 @@ function init() {
     // 1. Nastavení scény
     scena = new THREE.Scene();
     // Černá mlha pro atmosféru a skrytí konců arény
-    scena.fog = new THREE.FogExp2(0x000000, 0.03);
+    scena.fog = new THREE.FogExp2(0x000000, 0.02); // Snížena hustota mlhy pro lepší viditelnost
 
     // 2. Kamera
     kamera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -158,31 +204,39 @@ function init() {
     renderer.setPixelRatio(window.devicePixelRatio);
     document.body.appendChild(renderer.domElement);
 
-    // 4. Osvětlení
-    const ambientLight = new THREE.AmbientLight(0x404040); // Slabé okolní světlo
+    // 4. Osvětlení (VYLEPŠENO)
+
+    // Hemisphere Light (Nebe = modrá, Země = tmavá) - Celkové ambientní světlo
+    const hemiLight = new THREE.HemisphereLight(0x444488, 0x000000, 0.6);
+    scena.add(hemiLight);
+
+    // Ambientní světlo pro jistotu
+    const ambientLight = new THREE.AmbientLight(0x222222);
     scena.add(ambientLight);
 
-    // Světlo hráče (baterka/aura)
-    const playerLight = new THREE.PointLight(0xffffff, 1, 20);
+    // Světlo hráče (baterka/aura) - ZESÍLENO
+    const playerLight = new THREE.PointLight(0xffffff, 1.5, 30);
     kamera.add(playerLight); // Světlo se hýbe s kamerou
-    scena.add(kamera); // Přidáme kameru do scény, aby fungovalo připojení dětí (zbraň, světlo)
+    scena.add(kamera); // Přidáme kameru do scény
 
     // 5. Prostředí (Podlaha a Zdi)
     vytvorProstredi();
 
-    // 6. Clock
+    // 6. Ovládání (PointerLockControls) - VYLEPŠENO
+    controls = new PointerLockControls(kamera, document.body);
+
+    // 7. Clock
     clock = new THREE.Clock();
 
-    // 7. Event Listeners
+    // 8. Event Listeners
     window.addEventListener('resize', onWindowResize, false);
     document.addEventListener('keydown', onKeyDown, false);
     document.addEventListener('keyup', onKeyUp, false);
-    document.addEventListener('mousemove', onMouseMove, false);
     document.addEventListener('mousedown', onMouseDown, false);
 
     // Kliknutí na instrukce zamkne kurzor a spustí hru
     uiInstructions.addEventListener('click', () => {
-        document.body.requestPointerLock();
+        controls.lock();
     });
 
     // Restart po game over
@@ -191,17 +245,17 @@ function init() {
     });
 
     // Sledování stavu Pointer Lock (pro pauzu/start)
-    document.addEventListener('pointerlockchange', () => {
-        if (document.pointerLockElement === document.body) {
-            isGameActive = true;
-            uiInstructions.style.display = 'none';
-            uiGameOver.style.display = 'none';
-        } else {
-            isGameActive = false;
-            // Pokud nejsme mrtví, zobrazíme instrukce jako pauzu
-            if (zdravi > 0) {
-                uiInstructions.style.display = 'block';
-            }
+    controls.addEventListener('lock', () => {
+        isGameActive = true;
+        uiInstructions.style.display = 'none';
+        uiGameOver.style.display = 'none';
+    });
+
+    controls.addEventListener('unlock', () => {
+        isGameActive = false;
+        // Pokud nejsme mrtví, zobrazíme instrukce jako pauzu
+        if (zdravi > 0) {
+            uiInstructions.style.display = 'block';
         }
     });
 
@@ -214,48 +268,56 @@ function vytvorZbran() {
     const gunGroup = new THREE.Group();
 
     // Tělo zbraně
-    const hlavenGeo = new THREE.BoxGeometry(0.1, 0.1, 0.4);
-    const hlavenMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.8 });
+    const hlavenGeo = new THREE.BoxGeometry(0.1, 0.1, 0.6);
+    const hlavenMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.9, roughness: 0.2 });
     const hlaven = new THREE.Mesh(hlavenGeo, hlavenMat);
-    hlaven.position.set(0, 0, 0); // Relativní ke skupině
+    hlaven.position.set(0, 0, 0);
 
-    // Pažba/detail
-    const detailGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.2, 8);
-    const detailMat = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x004444 }); // Neon cyan
+    // Svítící detaily
+    const detailGeo = new THREE.BoxGeometry(0.12, 0.02, 0.5);
+    const detailMat = new THREE.MeshBasicMaterial({ color: 0x00ffff }); // Neon cyan
     const detail = new THREE.Mesh(detailGeo, detailMat);
-    detail.rotation.x = Math.PI / 2;
-    detail.position.set(0, 0, 0.1);
+    detail.position.set(0, 0.06, 0);
 
     gunGroup.add(hlaven);
     gunGroup.add(detail);
 
     // Pozice zbraně na obrazovce (vpravo dole)
-    gunGroup.position.set(0.2, -0.15, -0.3);
+    gunGroup.position.set(0.3, -0.2, -0.5);
 
     // Přidáme zbraň ke kameře, aby se s ní hýbala
     kamera.add(gunGroup);
 
-    // Uložíme referenci pro animaci zpětného rázu (volitelné, zatím nepoužito)
+    // Uložíme referenci pro animaci zpětného rázu
     kamera.userData.gun = gunGroup;
 }
 
 function vytvorProstredi() {
     // Podlaha - Neon Grid
-    const gridHelper = new THREE.GridHelper(VELIKOST_ARENY * 2, 40, 0xff00ff, 0x440044); // Magenta mřížka
+    const gridHelper = new THREE.GridHelper(VELIKOST_ARENY * 2, 40, 0xff00ff, 0x220022); // Magenta mřížka
     scena.add(gridHelper);
 
     // Podlaha (fyzická, pro vizuál pod mřížkou)
     const planeGeo = new THREE.PlaneGeometry(VELIKOST_ARENY * 2, VELIKOST_ARENY * 2);
-    const planeMat = new THREE.MeshBasicMaterial({ color: 0x050505 });
+    const planeMat = new THREE.MeshStandardMaterial({
+        color: 0x050505,
+        roughness: 0.8
+    });
     const plane = new THREE.Mesh(planeGeo, planeMat);
     plane.rotation.x = -Math.PI / 2;
-    plane.position.y = -0.01; // Těsně pod mřížkou
+    plane.position.y = -0.05; // Těsně pod mřížkou
     scena.add(plane);
 
     // Zdi okolo arény
-    const wallHeight = 10;
-    const wallGeo = new THREE.BoxGeometry(VELIKOST_ARENY * 2, wallHeight, 1);
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.2 });
+    const wallHeight = 15;
+    const wallGeo = new THREE.BoxGeometry(VELIKOST_ARENY * 2, wallHeight, 2);
+    const wallMat = new THREE.MeshStandardMaterial({
+        color: 0x111111,
+        roughness: 0.1,
+        metalness: 0.5,
+        emissive: 0x110011, // Jemná fialová záře
+        emissiveIntensity: 0.2
+    });
 
     // 4 Zdi
     const zdi = [
@@ -292,7 +354,7 @@ function restartHry() {
     kamera.position.set(0, 1.6, 0);
     kamera.rotation.set(0, 0, 0);
 
-    document.body.requestPointerLock();
+    controls.lock();
 }
 
 // --- OVLÁDÁNÍ ---
@@ -321,19 +383,7 @@ function onKeyUp(event) {
     }
 }
 
-function onMouseMove(event) {
-    if (!isGameActive) return;
-
-    // Rotace kamery pomocí myši (YAW a PITCH)
-    const movementX = event.movementX || event.mozMovementX || event.webkitMovementX || 0;
-    const movementY = event.movementY || event.mozMovementY || event.webkitMovementY || 0;
-
-    kamera.rotation.y -= movementX * 0.002;
-    kamera.rotation.x -= movementY * 0.002;
-
-    // Omezení pohledu nahoru/dolů (aby si hráč nezlomil vaz)
-    kamera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, kamera.rotation.x));
-}
+// Poznámka: MouseMove už neřešíme ručně, dělá to PointerLockControls
 
 function onMouseDown(event) {
     if (!isGameActive) return;
@@ -349,8 +399,7 @@ function vystrel() {
     kamera.getWorldDirection(smer);
 
     // Pozice startu střely (trochu před hráčem)
-    const startPozice = kamera.position.clone().add(smer.multiplyScalar(1.0));
-    // Vykompenzujeme posun, abychom předali čistý směr
+    const startPozice = kamera.position.clone().add(smer.multiplyScalar(0.5));
     smer.normalize();
 
     // Vytvoření střely
@@ -360,10 +409,10 @@ function vystrel() {
     // Efekt "cuknutí" zbraní
     const gun = kamera.userData.gun;
     if (gun) {
-        gun.position.z += 0.1; // Posun vzad
+        gun.position.z += 0.15; // Výraznější cuknutí
         setTimeout(() => {
-            gun.position.z -= 0.1; // Návrat
-        }, 50);
+            gun.position.z -= 0.15; // Návrat
+        }, 80);
     }
 }
 
@@ -375,38 +424,38 @@ function animate() {
     const delta = clock.getDelta(); // Čas od posledního snímku v sekundách
 
     if (isGameActive) {
-        // 1. Pohyb hráče
+        // 1. Pohyb hráče (WASD)
+        // PointerLockControls nemají vestavěný pohyb WASD, jen rotaci.
+        // Musíme implementovat pohyb relativně k pohledu kamery.
+
         playerVelocity.set(0, 0, 0);
-        playerDirection.set(0, 0, 0);
 
-        if (moveForward) playerDirection.z -= 1;
-        if (moveBackward) playerDirection.z += 1;
-        if (moveLeft) playerDirection.x -= 1;
-        if (moveRight) playerDirection.x += 1;
+        // Pohyb relativně k rotaci kamery (ale pouze v rovině XZ)
+        const forward = new THREE.Vector3();
+        kamera.getWorldDirection(forward);
+        forward.y = 0;
+        forward.normalize();
 
-        // Normalizace směru pro konstantní rychlost i diagonálně
-        playerDirection.normalize();
-
-        // Přepočet směru pohybu podle natočení kamery (pouze Y osa, ignorujeme pohled nahoru/dolů)
-        // Získáme směr "dopředu" podle kamery, ale promítnutý na rovinu XZ
-        const forward = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(0, kamera.rotation.y, 0));
-        const right = new THREE.Vector3(1, 0, 0).applyEuler(new THREE.Euler(0, kamera.rotation.y, 0));
+        const right = new THREE.Vector3();
+        kamera.getWorldDirection(right);
+        right.cross(new THREE.Vector3(0, 1, 0));
+        right.y = 0;
+        right.normalize();
 
         if (moveForward) playerVelocity.add(forward.multiplyScalar(RYCHLOST_HRACE));
         if (moveBackward) playerVelocity.add(forward.multiplyScalar(-RYCHLOST_HRACE));
+        if (moveRight) playerVelocity.add(right.multiplyScalar(RYCHLOST_HRACE));
+        if (moveLeft) playerVelocity.add(right.multiplyScalar(-RYCHLOST_HRACE));
 
-        // Resetujeme pro boční pohyb, protože jsme modifikovali forward
-        const rightMove = right.clone().multiplyScalar(RYCHLOST_HRACE);
-        if (moveRight) playerVelocity.add(rightMove);
-        if (moveLeft) playerVelocity.add(rightMove.negate());
+        // Move controls object (PointerLockControls má metodu moveRight/moveForward, ale ta posouvá objekt)
+        // Místo toho prostě posuneme kameru ručně o vypočítanou rychlost
+        controls.getObject().position.addScaledVector(playerVelocity, delta);
 
-        // Aplikace pohybu
-        kamera.position.addScaledVector(playerVelocity, delta);
-
-        // Kontrola hranic arény (jednoduchá kolize se zdmi)
-        const limit = VELIKOST_ARENY - 1;
-        kamera.position.x = Math.max(-limit, Math.min(limit, kamera.position.x));
-        kamera.position.z = Math.max(-limit, Math.min(limit, kamera.position.z));
+        // Kontrola hranic arény
+        const limit = VELIKOST_ARENY - 2;
+        const pos = controls.getObject().position;
+        pos.x = Math.max(-limit, Math.min(limit, pos.x));
+        pos.z = Math.max(-limit, Math.min(limit, pos.z));
 
 
         // 2. Update střel
@@ -424,19 +473,20 @@ function animate() {
         if (time - lastSpawnTime > SPAWN_INTERVAL) {
             nepratele.push(new Nepritel());
             lastSpawnTime = time;
-            // Zvyšování obtížnosti: každých 10 sekund se zrychlí spawn
+            // Zvyšování obtížnosti
             if (SPAWN_INTERVAL > 500) SPAWN_INTERVAL -= 50;
         }
 
         // 4. Update nepřátel a kolize
-        const hracPozice = kamera.position.clone();
+        const hracPozice = controls.getObject().position.clone();
 
         for (let i = nepratele.length - 1; i >= 0; i--) {
             const nepritel = nepratele[i];
             nepritel.update(delta, hracPozice);
 
             // Kolize Nepřítel vs Hráč
-            if (nepritel.mesh.position.distanceTo(hracPozice) < 1.5) {
+            // Používáme group.position
+            if (nepritel.group.position.distanceTo(hracPozice) < 1.5) {
                 // Hráč dostal zásah
                 zdravi -= POSKOZENI_NEPRITELE;
                 uiHealth.textContent = zdravi;
@@ -448,13 +498,14 @@ function animate() {
                 if (zdravi <= 0) {
                     gameOver();
                 }
-                continue; // Nepřítel zmizel, jdeme na dalšího
+                continue;
             }
 
             // Kolize Nepřítel vs Střela
             for (let j = strely.length - 1; j >= 0; j--) {
                 const strela = strely[j];
-                if (nepritel.mesh.position.distanceTo(strela.mesh.position) < (POLOMER_KOLIZE * 2)) {
+                // Zvětšený poloměr kolize pro roboty
+                if (nepritel.group.position.distanceTo(strela.mesh.position) < POLOMER_KOLIZE) {
                     // Zásah!
                     skore += 10;
                     uiScore.textContent = skore;
@@ -466,7 +517,7 @@ function animate() {
                     strela.odstran();
                     strely.splice(j, 1);
 
-                    break; // Nepřítel zničen, už nekontrolujeme další střely
+                    break;
                 }
             }
         }
@@ -477,7 +528,7 @@ function animate() {
 
 function gameOver() {
     isGameActive = false;
-    document.exitPointerLock();
+    controls.unlock(); // Uvolnit myš
     uiGameOver.style.display = 'block';
     uiFinalScore.textContent = skore;
 }
