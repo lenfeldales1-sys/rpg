@@ -1,0 +1,98 @@
+/* Reset a základní nastavení */
+body {
+    margin: 0;
+    overflow: hidden; /* Zabrání posuvníkům */
+    background-color: #000; /* Černé pozadí pro případ, že se canvas nenačte hned */
+    font-family: 'Courier New', Courier, monospace; /* Monospace font pro "terminál" vzhled */
+    user-select: none; /* Zabrání označování textu */
+}
+
+/* Plátno Three.js */
+canvas {
+    display: block; /* Odstraní spodní mezeru u inline elementů */
+}
+
+/* UI Vrstva */
+#ui-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none; /* UI neblokuje klikání na canvas (kromě interaktivních prvků) */
+}
+
+/* Společný styl pro UI texty */
+#score-container, #health-container, #instructions, #game-over {
+    position: absolute;
+    color: #0ff; /* Neon Cyan */
+    text-shadow: 0 0 5px #0ff; /* Záře */
+    font-weight: bold;
+    pointer-events: auto; /* Povolí interakci (např. kliknutí na start) */
+}
+
+/* Skóre vpravo nahoře */
+#score-container {
+    top: 20px;
+    right: 20px;
+    font-size: 24px;
+}
+
+/* Zdraví vlevo dole */
+#health-container {
+    bottom: 20px;
+    left: 20px;
+    font-size: 24px;
+    color: #f00; /* Červená pro zdraví */
+    text-shadow: 0 0 5px #f00;
+}
+
+/* Zaměřovač uprostřed */
+#crosshair {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 20px;
+    height: 20px;
+    border: 2px solid #0f0; /* Zelený */
+    border-radius: 50%; /* Kruh */
+    transform: translate(-50%, -50%); /* Přesné vycentrování */
+    box-shadow: 0 0 5px #0f0;
+    pointer-events: none;
+}
+/* Tečka uprostřed zaměřovače */
+#crosshair::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 4px;
+    height: 4px;
+    background-color: #0f0;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+}
+
+/* Instrukce a Game Over uprostřed obrazovky */
+#instructions, #game-over {
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    background: rgba(0, 0, 0, 0.7); /* Poloprůhledné pozadí */
+    padding: 20px;
+    border: 2px solid #0ff;
+    box-shadow: 0 0 10px #0ff;
+}
+
+#instructions h1, #game-over h1 {
+    font-size: 48px;
+    margin: 0 0 20px 0;
+    color: #f0f; /* Neon Magenta */
+    text-shadow: 0 0 10px #f0f;
+}
+
+.controls {
+    font-size: 18px;
+    color: #fff;
+}

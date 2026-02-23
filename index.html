@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Breach</title>
+    <link rel="stylesheet" href="style.css">
+
+    <!-- Import Map pro Three.js - umožňuje používat 'import' v JS bez bundleru -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+    <!-- UI Overlay -->
+    <div id="ui-layer">
+        <div id="crosshair"></div>
+        <div id="score-container">SKÓRE: <span id="score">0</span></div>
+        <div id="health-container">ZDRAVÍ: <span id="health">100</span></div>
+        <div id="instructions">
+            <h1>NEON BREACH</h1>
+            <p>Klikni pro start</p>
+            <p class="controls">WASD = Pohyb | Myš = Rozhlížení + Střelba</p>
+        </div>
+        <div id="game-over" style="display: none;">
+            <h1>GAME OVER</h1>
+            <p>Finální skóre: <span id="final-score">0</span></p>
+            <p>Klikni pro restart</p>
+        </div>
+    </div>
+
+    <!-- Hlavní herní skript -->
+    <script type="module" src="game.js"></script>
+</body>
+</html>
